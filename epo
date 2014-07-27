@@ -1,0 +1,16 @@
+#! /system/bin/sh
+
+(cat << EOF) > /data/misc/mnl.prop
+dev.gps=/dev/gps
+EPO_enabled=1
+SUPL_enabled=1
+EOF
+
+cd /data/misc
+rm EPO.DAT
+wget http://epodownload.mediatek.com/EPO.DAT
+chown 1000.1000 EPO.DAT
+chown 1000.1000 mnl.prop
+chmod 666 EPO.DAT
+chmod 666 mnl.prop
+
