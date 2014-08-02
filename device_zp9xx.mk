@@ -61,13 +61,19 @@ PRODUCT_COPY_FILES += \
 	frameworks/native/data/etc/android.hardware.sensor.proximity.xml:system/etc/permissions/android.hardware.sensor.proximity.xml \
 	frameworks/native/data/etc/android.hardware.location.gps.xml:system/etc/permissions/android.hardware.location.gps.xml \
 	frameworks/native/data/etc/android.hardware.camera.flash-autofocus.xml:system/etc/permissions/android.hardware.camera.flash-autofocus.xml \
-	frameworks/native/data/etc/android.hardware.camera.front.xml:system/etc/permissions/android.hardware.camera.front.xml
+	frameworks/native/data/etc/android.hardware.camera.front.xml:system/etc/permissions/android.hardware.camera.front.xml \
+	frameworks/native/data/etc/android.hardware.bluetooth.xml:system/etc/permissions/android.hardware.bluetooth.xml
 
 PRODUCT_COPY_FILES += \
 	$(LOCAL_PATH)/media_codecs.xml:system/etc/media_codecs.xml \
 	$(LOCAL_PATH)/media_profiles.xml:system/etc/media_profile.xml \
 	$(LOCAL_PATH)/epo:system/bin/epo \
 	$(LOCAL_PATH)/epo_conf.xml:system/etc/epo_conf.xml
+
+PRODUCT_COPY_FILES += \
+	$(LOCAL_PATH)/keylayout/ACCDET.kl:system/usr/keylayout/ACCDET.kl \
+	$(LOCAL_PATH)/keylayout/hid-keyboard.kl:system/usr/keylayout/hid-keyboard.kl \
+	$(LOCAL_PATH)/keylayout/mtk-kpd.kl:system/usr/keylayout/mtk-kpd.kl
 
 PRODUCT_PROPERTY_OVERRIDES := \
 	fmradio.driver.chip=3 \
@@ -118,6 +124,13 @@ PRODUCT_PACKAGES += \
 # wifi
 PRODUCT_PACKAGES += \
 	lib_driver_cmd_mtk
+
+# BT
+PRODUCT_PACKAGES += \
+	libbtcusttable \
+	libbluetoothdrv \
+	libbluetooth_mtk \
+	libbluetooth_relayer
 
 PRODUCT_PACKAGES += \
 	lights.default \

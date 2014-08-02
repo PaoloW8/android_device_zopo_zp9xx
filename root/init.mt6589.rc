@@ -601,8 +601,10 @@ service thermal /system/bin/thermal
 service agpsd /system/bin/mtk_agpsd
     class main
     socket agpsd stream 660 gps system
+    socket agpsd2 stream 660 gps system
+    socket agpsd3 stream 660 gps system
     user gps
-    group gps ccci inet sdcard_rw misc
+    group gps ccci inet sdcard_r sdcard_rw misc
 
 service mnld /system/xbin/mnld
     user gps
@@ -610,6 +612,12 @@ service mnld /system/xbin/mnld
     socket mnld stream 660 gps system
     disabled
 
+service mtkbt /system/bin/mtkbt
+	socket bt.int.adp dgram 660 bluetooth net_bt
+	socket bt.a2dp.stream dgram 660 bluetooth net_bt
+	user bluetooth
+	group net_bt bluetooth net_bt_admin sdcard_rw inet net_admin nvram net_raw
+	oneshot
 
 # virtual sdcard daemon running as media_rw (1023)
 service fuse_sdcard0 /system/bin/sdcard -u 1023 -g 1023 /mnt/media_rw/sdcard0 /storage/sdcard0

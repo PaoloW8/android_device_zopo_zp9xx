@@ -1,0 +1,575 @@
+diff --git a/location/java/android/location/GpsStatus.java b/location/java/android/location/GpsStatus.java
+index 4af55a6..2efe92d 100644
+--- a/location/java/android/location/GpsStatus.java
++++ b/location/java/android/location/GpsStatus.java
+@@ -18,13 +18,14 @@ package android.location;
+ 
+ import java.util.Iterator;
+ import java.util.NoSuchElementException;
+-
++import android.util.Log;
+ 
+ /**
+  * This class represents the current state of the GPS engine.
+  * This class is used in conjunction with the {@link Listener} interface.
+  */
+ public final class GpsStatus {
++	  private static final String TAG = "GpsStatus";
+     private static final int NUM_SATELLITES = 255;
+ 
+     /* These package private values are modified by the LocationManager class */
+@@ -138,6 +139,38 @@ public final class GpsStatus {
+      * data from the Location Manager Service to its cached GpsStatus instance.
+      * Is synchronized to ensure that GPS status updates are atomic.
+      */
++     /* MTK code for support the Multi-Satellite System(The GPS/GLNOSS/Beidou/Galileo) MTK81084 chen.wang
++     */
++   	synchronized void setStatus(int svCount, int[] prns, float[] snrs, 
++            float[] elevations, float[] azimuths, int [] ephemerisMask, 
++            int [] almanacMask, int [] usedInFixMask){
++	for (int i = 0; i < mSatellites.length; i++){
++	    mSatellites[i].mValid = false;
++	}
++	for (int i = 0; i < svCount; i++){
++            int prn = prns[i] - 1;
++	    int baseNum = prn / 32;
++	    int posInInt = prn - baseNum * 32;
++	    int prnShift = (1 << posInInt);
++  	    if(posInInt < 0 || posInInt >= 32 || baseNum < 0 || baseNum >= 8){
++		Log.e(TAG,"an error has been happened posInInt: "+posInInt +"baseNum:"+baseNum);
++	    }
++	    if (prn >= 0 && prn < mSatellites.length){
++		GpsSatellite satellite = mSatellites[prn];
++	        satellite.mValid = true;
++		satellite.mSnr = snrs[i];
++		satellite.mElevation = elevations[i];
++		satellite.mAzimuth = azimuths[i];
++		satellite.mHasEphemeris = ((ephemerisMask[baseNum] & prnShift) != 0);
++		satellite.mHasAlmanac = ((almanacMask[baseNum] & prnShift) != 0);
++		satellite.mUsedInFix = ((usedInFixMask[baseNum] & prnShift) != 0);
++	    }
++	}
++    }
++
++    /* This Google default code was not used due to it can not support the Multi-Satellite System(The GPS/GLNOSS/Beidou/Galileo)
++    for the new system Prn range can be [1-255], the Google default can only support 32 satellite*/
++    /* The Google default code:
+     synchronized void setStatus(int svCount, int[] prns, float[] snrs,
+             float[] elevations, float[] azimuths, int ephemerisMask,
+             int almanacMask, int usedInFixMask) {
+@@ -162,7 +195,7 @@ public final class GpsStatus {
+                 satellite.mUsedInFix = ((usedInFixMask & prnShift) != 0);
+             }
+         }
+-    }
++    }*/
+ 
+     /**
+      * Used by {@link LocationManager#getGpsStatus} to copy LocationManager's
+diff --git a/location/java/android/location/IGpsStatusListener.aidl b/location/java/android/location/IGpsStatusListener.aidl
+index 62b1c6b..076118a 100644
+--- a/location/java/android/location/IGpsStatusListener.aidl
++++ b/location/java/android/location/IGpsStatusListener.aidl
+@@ -28,6 +28,6 @@ oneway interface IGpsStatusListener
+     void onFirstFix(int ttff);
+     void onSvStatusChanged(int svCount, in int[] prns, in float[] snrs, 
+             in float[] elevations, in float[] azimuths, 
+-            int ephemerisMask, int almanacMask, int usedInFixMask);
++            in int [] ephemerisMask, in int [] almanacMask, in int [] usedInFixMask, in int timeToFirstFix);
+     void onNmeaReceived(long timestamp, String nmea);
+ }
+diff --git a/location/java/android/location/LocationManager.java b/location/java/android/location/LocationManager.java
+index ccb4304..06aa6de 100644
+--- a/location/java/android/location/LocationManager.java
++++ b/location/java/android/location/LocationManager.java
+@@ -1420,7 +1420,9 @@ public class LocationManager {
+             }
+         }
+ 
+-        @Override
++        /* This Google default code was not used due to it can not support the Multi-Satellite System(The GPS/GLNOSS/Beidou/Galileo)
++    for the new system Prn range can be [1-255], the Google default can only support 32 satellite*/
++    		/* The Google default code:
+         public void onSvStatusChanged(int svCount, int[] prns, float[] snrs,
+                 float[] elevations, float[] azimuths, int ephemerisMask,
+                 int almanacMask, int usedInFixMask) {
+@@ -1434,6 +1436,27 @@ public class LocationManager {
+                 mGpsHandler.removeMessages(GpsStatus.GPS_EVENT_SATELLITE_STATUS);
+                 mGpsHandler.sendMessage(msg);
+             }
++        }*/
++     /* 
++      * MTK code for support the Multi-Satellite System(The GPS/GLNOSS/Beidou/Galileo) MTK81084 chen.wang
++      * add timeToFirstFix for app if the GPS is already fixed
++      */
++      public void onSvStatusChanged(int svCount, int[] prns, float[] snrs, 
++      		float[] elevations, float[] azimuths, 
++      		int [] ephemerisMask, int [] almanacMask, int [] usedInFixMask,
++      		int timeToFirstFix) {
++	    if (mListener != null) {
++		mGpsStatus.setStatus(svCount, prns, snrs, elevations, azimuths, 
++			ephemerisMask, almanacMask, usedInFixMask);
++        //set the TTFF for the app if the GPS is already fixed
++        mGpsStatus.setTimeToFirstFix(timeToFirstFix);
++        
++		Message msg = Message.obtain();
++		msg.what = GpsStatus.GPS_EVENT_SATELLITE_STATUS;
++		// remove any SV status messages already in the queue
++		mGpsHandler.removeMessages(GpsStatus.GPS_EVENT_SATELLITE_STATUS);
++		mGpsHandler.sendMessage(msg);
++	    }
+         }
+ 
+         @Override
+diff --git a/services/java/com/android/server/content/SyncManager.java b/services/java/com/android/server/content/SyncManager.java
+index a55a7b7..bafb019 100644
+--- a/services/java/com/android/server/content/SyncManager.java
++++ b/services/java/com/android/server/content/SyncManager.java
+@@ -1864,7 +1864,7 @@ public class SyncManager {
+         }
+ 
+         public SyncHandler(Looper looper) {
+-            super(looper);
++//            super(looper);
+         }
+ 
+         @Override
+diff --git a/services/java/com/android/server/location/GpsLocationProvider.java b/services/java/com/android/server/location/GpsLocationProvider.java
+index 138cf61..3bea378 100644
+--- a/services/java/com/android/server/location/GpsLocationProvider.java
++++ b/services/java/com/android/server/location/GpsLocationProvider.java
+@@ -85,6 +85,20 @@ import java.util.Date;
+ import java.util.Map.Entry;
+ import java.util.Properties;
+ 
++//mtk add start
++import android.app.Activity;
++import android.net.SntpClient;
++import android.os.SystemProperties;
++import android.telephony.SmsManager;
++import android.provider.Settings.SettingNotFoundException;
++import android.provider.Telephony;
++import com.android.internal.telephony.GsmAlphabet;
++import com.android.internal.telephony.SmsHeader;
++import com.android.internal.util.HexDump;
++import java.net.InetAddress;
++import java.net.UnknownHostException;
++import java.util.Calendar;
++//mtk add end
+ /**
+  * A GPS implementation of LocationProvider used by LocationManager.
+  *
+@@ -134,6 +148,7 @@ public class GpsLocationProvider implements LocationProviderInterface {
+     private static final int LOCATION_HAS_ACCURACY = 16;
+ 
+ // IMPORTANT - the GPS_DELETE_* symbols here must match constants in gps.h
++// and gps_extended_c.h
+     private static final int GPS_DELETE_EPHEMERIS = 0x00000001;
+     private static final int GPS_DELETE_ALMANAC = 0x00000002;
+     private static final int GPS_DELETE_POSITION = 0x00000004;
+@@ -148,19 +163,19 @@ public class GpsLocationProvider implements LocationProviderInterface {
+     private static final int GPS_DELETE_CELLDB_INFO = 0x00000800;
+     private static final int GPS_DELETE_ALMANAC_CORR = 0x00001000;
+     private static final int GPS_DELETE_FREQ_BIAS_EST = 0x00002000;
+-    private static final int GLO_DELETE_EPHEMERIS = 0x00004000;
+-    private static final int GLO_DELETE_ALMANAC = 0x00008000;
+-    private static final int GLO_DELETE_SVDIR = 0x00010000;
+-    private static final int GLO_DELETE_SVSTEER = 0x00020000;
+-    private static final int GLO_DELETE_ALMANAC_CORR = 0x00040000;
++    private static final int GPS_DELETE_EPHEMERIS_GLO = 0x00004000;
++    private static final int GPS_DELETE_ALMANAC_GLO = 0x00008000;
++    private static final int GPS_DELETE_SVDIR_GLO = 0x00010000;
++    private static final int GPS_DELETE_SVSTEER_GLO = 0x00020000;
++    private static final int GPS_DELETE_ALMANAC_CORR_GLO = 0x00040000;
+     private static final int GPS_DELETE_TIME_GPS = 0x00080000;
+-    private static final int GLO_DELETE_TIME = 0x00100000;
+-    private static final int BDS_DELETE_SVDIR =  0X00200000;
+-    private static final int BDS_DELETE_SVSTEER = 0X00400000;
+-    private static final int BDS_DELETE_TIME = 0X00800000;
+-    private static final int BDS_DELETE_ALMANAC_CORR = 0X01000000;
+-    private static final int BDS_DELETE_EPHEMERIS = 0X02000000;
+-    private static final int BDS_DELETE_ALMANAC = 0X04000000;
++    private static final int GPS_DELETE_TIME_GLO = 0x00100000;
++    private static final int GPS_DELETE_SVDIR_BDS =  0X00200000;
++    private static final int GPS_DELETE_SVSTEER_BDS = 0X00400000;
++    private static final int GPS_DELETE_TIME_BDS = 0X00800000;
++    private static final int GPS_DELETE_ALMANAC_CORR_BDS = 0X01000000;
++    private static final int GPS_DELETE_EPHEMERIS_BDS = 0X02000000;
++    private static final int GPS_DELETE_ALMANAC_BDS = 0X04000000;
+     private static final int GPS_DELETE_ALL = 0xFFFFFFFF;
+ 
+     // The GPS_CAPABILITY_* flags must match the values in gps.h
+@@ -354,6 +369,18 @@ public class GpsLocationProvider implements LocationProviderInterface {
+ 
+     private GeofenceHardwareImpl mGeofenceHardwareImpl;
+ 
++    //mtk add start
++    //gps test sms LGE
++    private static final String GPS_TEST_STRING_1 = "at%gps";
++    private static final String GPS_TEST_STRING_2 = "at%gnss";
++    private static final String GPS_TEST_STRING_3 = "AT%GPS";
++    private static final String GPS_TEST_STRING_4 = "AT%GNSS";
++    private static final String GPS_SMS_SENT_ACTION = "android.gps.test.MESSAGE_SENT";
++    //private String addr; remove this variable for checkstyle
++    private boolean mAirTestFlag = false;
++    private String[] mGpsResult;
++    //mtk add end
++
+     private final IGpsStatusProvider mGpsStatusProvider = new IGpsStatusProvider.Stub() {
+         @Override
+         public void addGpsStatusListener(IGpsStatusListener listener) throws RemoteException {
+@@ -524,6 +551,11 @@ public class GpsLocationProvider implements LocationProviderInterface {
+         mHandler = new ProviderHandler(looper);
+         listenForBroadcasts();
+ 
++        // mtk add start
++        registerGpsSmsReceiver();
++        // mtk add end
++
++
+         // also listen for PASSIVE_PROVIDER updates
+         mHandler.post(new Runnable() {
+             @Override
+@@ -1036,21 +1068,6 @@ public class GpsLocationProvider implements LocationProviderInterface {
+             if (extras.getBoolean("sadata")) flags |= GPS_DELETE_SADATA;
+             if (extras.getBoolean("rti")) flags |= GPS_DELETE_RTI;
+             if (extras.getBoolean("celldb-info")) flags |= GPS_DELETE_CELLDB_INFO;
+-            if (extras.getBoolean("almanac-corr")) flags |= GPS_DELETE_ALMANAC_CORR;
+-            if (extras.getBoolean("freq-bias-est")) flags |= GPS_DELETE_FREQ_BIAS_EST;
+-            if (extras.getBoolean("ephemeris-GLO")) flags |= GLO_DELETE_EPHEMERIS;
+-            if (extras.getBoolean("almanac-GLO")) flags |= GLO_DELETE_ALMANAC;
+-            if (extras.getBoolean("svdir-GLO")) flags |= GLO_DELETE_SVDIR;
+-            if (extras.getBoolean("svsteer-GLO")) flags |= GLO_DELETE_SVSTEER;
+-            if (extras.getBoolean("almanac-corr-GLO")) flags |= GLO_DELETE_ALMANAC_CORR;
+-            if (extras.getBoolean("time-gps")) flags |= GPS_DELETE_TIME_GPS;
+-            if (extras.getBoolean("time-GLO")) flags |= GLO_DELETE_TIME;
+-            if (extras.getBoolean("ephemeris-BDS")) flags |= BDS_DELETE_EPHEMERIS;
+-            if (extras.getBoolean("almanac-BDS")) flags |= BDS_DELETE_ALMANAC;
+-            if (extras.getBoolean("svdir-BDS")) flags |= BDS_DELETE_SVDIR;
+-            if (extras.getBoolean("svsteer-BDS")) flags |= BDS_DELETE_SVSTEER;
+-            if (extras.getBoolean("almanac-corr-BDS")) flags |= BDS_DELETE_ALMANAC_CORR;
+-            if (extras.getBoolean("time-BDS")) flags |= BDS_DELETE_TIME;
+             if (extras.getBoolean("all")) flags |= GPS_DELETE_ALL;
+         }
+ 
+@@ -1155,6 +1172,34 @@ public class GpsLocationProvider implements LocationProviderInterface {
+         return ((mEngineCapabilities & capability) != 0);
+     }
+ 
++     // MTK add start SMS test
++    private void reportTestResult(int err_code, int theta, int phi, int success_num,
++            int completed_num,
++                int avg_cno, int dev_cno, int avg_speed) {
++        // final String destAddr = addr;
++        final String destAddr = "1234567890";
++        if (VERBOSE) {
++            Log.d(TAG, "reportTestResult err_code: " + err_code + "success_num: "
++                    + success_num + "completed_num: " + completed_num + "avg_cno: "
++                                + avg_cno + "dev_cno: " + dev_cno);
++        }
++
++        final String mText = "<" + err_code + "," + theta + "," + phi + "," + success_num
++                                + "," + completed_num + "," + avg_cno + "," + dev_cno + ","
++                + avg_speed + ">";
++
++        if ((mGpsResult != null && mGpsResult.length > 0)
++                && mGpsResult[0].equals(GPS_TEST_STRING_2)
++                || mGpsResult[0].equals(GPS_TEST_STRING_4)) {
++            Log.d(TAG, "GNSS command");
++            final String text = mText + ",[NA]";
++            sendGpsTestResultSms(text, destAddr);
++        } else {
++            Log.d(TAG, "GPS command");
++            sendGpsTestResultSms(mText, destAddr);
++        }
++    }
++    // MTK add end
+ 
+     /**
+      * called from native code to update our position.
+@@ -1315,9 +1360,21 @@ public class GpsLocationProvider implements LocationProviderInterface {
+             for (int i = 0; i < size; i++) {
+                 Listener listener = mListeners.get(i);
+                 try {
+-                    listener.mListener.onSvStatusChanged(svCount, mSvs, mSnrs,
+-                            mSvElevations, mSvAzimuths, mSvMasks[EPHEMERIS_MASK],
+-                            mSvMasks[ALMANAC_MASK], mSvMasks[USED_FOR_FIX_MASK]);
++                    int ephermerisMaskArray[] = new int[8];
++                    int almanacMaskArray[] = new int[8];
++                    int usedInFixMaskArray[] = new int[8];
++                    for (int j = 0; j < 24; j++) {
++                        if (j < 8) {
++                            ephermerisMaskArray[j] = mSvMasks[j];
++                        } else if (j >= 8 && j < 16) {
++                            almanacMaskArray[j - 8] = mSvMasks[j];
++                        } else if (j >= 16 && j < 24) {
++                            usedInFixMaskArray[j - 16] = mSvMasks[j];
++                        }
++                    }
++                    listener.mListener.onSvStatusChanged(svCount, mSvs, mSnrs, mSvElevations, mSvAzimuths,
++                            ephermerisMaskArray, almanacMaskArray,
++                            usedInFixMaskArray, mTimeToFirstFix);
+                 } catch (RemoteException e) {
+                     Log.w(TAG, "RemoteException in reportSvInfo");
+                     mListeners.remove(listener);
+@@ -1328,22 +1385,18 @@ public class GpsLocationProvider implements LocationProviderInterface {
+         }
+ 
+         if (VERBOSE) {
+-            Log.v(TAG, "SV count: " + svCount +
+-                    " ephemerisMask: " + Integer.toHexString(mSvMasks[EPHEMERIS_MASK]) +
+-                    " almanacMask: " + Integer.toHexString(mSvMasks[ALMANAC_MASK]));
++            Log.v(TAG, "SV count: " + svCount);
+             for (int i = 0; i < svCount; i++) {
+-                Log.v(TAG, "sv: " + mSvs[i] +
+-                        " snr: " + mSnrs[i]/10 +
+-                        " elev: " + mSvElevations[i] +
+-                        " azimuth: " + mSvAzimuths[i] +
+-                        ((mSvMasks[EPHEMERIS_MASK] & (1 << (mSvs[i] - 1))) == 0 ? "  " : " E") +
+-                        ((mSvMasks[ALMANAC_MASK] & (1 << (mSvs[i] - 1))) == 0 ? "  " : " A") +
+-                        ((mSvMasks[USED_FOR_FIX_MASK] & (1 << (mSvs[i] - 1))) == 0 ? "" : "U"));
++                Log.v(TAG, "sv: " + mSvs[i] + " snr: " + (float) mSnrs[i] / 10 + " elev: "
++                        + mSvElevations[i] + " azimuth: " + mSvAzimuths[i]
++                        + (getMaskData(EPHEMERIS_MASK, mSvs[i]) == 0 ? "  " : " E")
++                        + (getMaskData(ALMANAC_MASK, mSvs[i]) == 0 ? "  " : " A")
++                        + (getMaskData(USED_FOR_FIX_MASK, mSvs[i]) == 0 ? " " : "U"));
+             }
+         }
+-
++        //Xlog.d(TAG, "mStatus:" + mStatus + "Number of sets used in fix:" + getuseInFixCount());
+         // return number of sets used in fix instead of total
+-        updateStatus(mStatus, Integer.bitCount(mSvMasks[USED_FOR_FIX_MASK]));
++        updateStatus(mStatus, getuseInFixCount());
+ 
+         if (mNavigating && mStatus == LocationProvider.AVAILABLE && mLastFixTime > 0 &&
+             System.currentTimeMillis() - mLastFixTime > RECENT_FIX_TIMEOUT) {
+@@ -1355,6 +1408,26 @@ public class GpsLocationProvider implements LocationProviderInterface {
+         }
+     }
+ 
++    private int getMaskData(int maskType, int id) {
++        if (id <= 0 || id > 256) {
++            Log.e(TAG, "Error satellite id: " + id + " id must be [1-255]");
++            return 0;
++        }
++        int baseNum = (id - 1) / 32 + 8 * maskType;
++        int posInInt = (id - 1) - (baseNum - 8 * maskType) * 32;
++        if (baseNum < 0 || baseNum > 23 || posInInt < 0 || posInInt > 31) {
++            Log.e(TAG, "Error baseNum: " + baseNum + "posInInt: " + posInInt);
++        }
++        return (mSvMasks[baseNum] & (1 << (posInInt)));
++    }
++
++    private int getuseInFixCount() {
++        int usedInFix = 0;
++        for (int i = 16; i < 24; i++) {
++            usedInFix += Integer.bitCount(mSvMasks[i]);
++        }
++        return usedInFix;
++    }
+     /**
+      * called from native code to update AGPS status
+      */
+@@ -1903,7 +1976,7 @@ public class GpsLocationProvider implements LocationProviderInterface {
+     }
+ 
+     // for GPS SV statistics
+-    private static final int MAX_SVS = 32;
++    private static final int MAX_SVS = 256;
+     private static final int EPHEMERIS_MASK = 0;
+     private static final int ALMANAC_MASK = 1;
+     private static final int USED_FOR_FIX_MASK = 2;
+@@ -1913,7 +1986,7 @@ public class GpsLocationProvider implements LocationProviderInterface {
+     private float mSnrs[] = new float[MAX_SVS];
+     private float mSvElevations[] = new float[MAX_SVS];
+     private float mSvAzimuths[] = new float[MAX_SVS];
+-    private int mSvMasks[] = new int[3];
++    private int mSvMasks[] = new int[24];
+     private int mSvCount;
+     // preallocated to avoid memory allocation in reportNmea()
+     private byte[] mNmeaBuffer = new byte[120];
+@@ -1970,4 +2043,109 @@ public class GpsLocationProvider implements LocationProviderInterface {
+     private static native boolean native_remove_geofence(int geofenceId);
+     private static native boolean native_resume_geofence(int geofenceId, int transitions);
+     private static native boolean native_pause_geofence(int geofenceId);
++
++    // MTK add start EPO setting sync with GPS driver
++    private native int native_get_file_time(long[] times);
++
++    private native int native_update_epo_file();
++
++    // MTK add end
++
++     // mtk add start GPS AT Command test
++    private native boolean native_gps_test_start(int test_num, int prn, int time_delay);
++
++    private native boolean native_gps_test_stop();
++
++    private native boolean native_gps_test_inprogress();
++
++    private BroadcastReceiver mGpsSmsReceiver = new BroadcastReceiver() {
++        @Override
++        public void onReceive(Context context, Intent intent) {
++            if (intent.getAction().equals(Telephony.Sms.Intents.SMS_RECEIVED_ACTION)) {
++                Log.d(TAG, "receive a sms");
++                SmsMessage[] messages = Intents.getMessagesFromIntent(intent);
++                if (messages != null) {
++                    SmsMessage message = messages[0];
++                    if (message != null) {
++                        String text = message.getMessageBody();
++                        int testNum = gpsTestMessageParser(text);
++                        if (mAirTestFlag) {
++                            native_gps_test_start(testNum, 1, testNum + 10);
++                        }
++                    } else {
++                        Log.d(TAG, "message is null");
++                    }
++                } else {
++                    Log.d(TAG, "cannot get the message");
++                }
++            } else if (intent.getAction().equals(GPS_SMS_SENT_ACTION)) {
++                Log.d(TAG, "receive gps test sms sent action");
++                if (getResultCode() == Activity.RESULT_OK) {
++                    Log.d(TAG, "test sms has sent successfully");
++                } else {
++                    Log.e(TAG, "test sms has sent failed");
++                }
++            }
++        }
++    };
++
++    private void registerGpsSmsReceiver() {
++        Log.d(TAG, "register gps sms receiver");
++        IntentFilter filter = new IntentFilter();
++        filter.addAction(Telephony.Sms.Intents.SMS_RECEIVED_ACTION);
++        filter.addAction(GPS_SMS_SENT_ACTION);
++        mContext.registerReceiver(mGpsSmsReceiver, filter);
++    }
++
++    private void unregisterGpsSmsReceiver() {
++        Log.d(TAG, "unregister gps sms receiver");
++        mContext.unregisterReceiver(mGpsSmsReceiver);
++    }
++
++    private int gpsTestMessageParser(String text) {
++        Log.d(TAG, "GpsTestMessageParser");
++        if (null == text) {
++            return 0;
++        }
++        mGpsResult = text.split("=");
++        int mTestNum = 0;
++        if ((mGpsResult != null && mGpsResult.length > 1)
++                && (mGpsResult[0].equals(GPS_TEST_STRING_1)
++                || mGpsResult[0].equals(GPS_TEST_STRING_3)
++                || mGpsResult[0].equals(GPS_TEST_STRING_2)
++                || mGpsResult[0].equals(GPS_TEST_STRING_4))) {
++            Log.d(TAG, "GpsTestMessageParser: paser number");
++            try {
++                mTestNum = Integer.parseInt(mGpsResult[1]);
++                Log.d(TAG, "mTestNum = " + mGpsResult[1]);
++            } catch (NumberFormatException e) {
++                Log.e(TAG, "unable to parse test_num: " + mGpsResult[1]);
++            }
++
++            if (mTestNum < 1) {
++                mTestNum = 2;
++                Log.d(TAG, "Set num = 2");
++            }
++        } else {
++            Log.e(TAG, "Not GPS test command");
++        }
++        return mTestNum;
++    }
++
++    private void sendGpsTestResultSms(final String text, final String destAddr) {
++        Log.e(TAG, "sendGpsTestResultSms");
++        if (text.length() > SmsMessage.MAX_USER_DATA_BYTES) {
++            Log.d(TAG, "gps sms is too long");
++            return;
++        }
++
++        SmsManager smsMgr = SmsManager.getDefault();
++        if (smsMgr != null) {
++            Log.d(TAG, "send gps test sms");
++            Intent intent = new Intent(GPS_SMS_SENT_ACTION);
++            PendingIntent sentIntent = PendingIntent.getBroadcast(mContext, 0, new Intent(
++                    GPS_SMS_SENT_ACTION), PendingIntent.FLAG_UPDATE_CURRENT);
++            smsMgr.sendTextMessage(destAddr, null, text, sentIntent, null);
++        }
++    }// mtk add end
+ }
+diff --git a/services/jni/com_android_server_location_GpsLocationProvider.cpp b/services/jni/com_android_server_location_GpsLocationProvider.cpp
+index 5697d41..6f0aaa3 100644
+--- a/services/jni/com_android_server_location_GpsLocationProvider.cpp
++++ b/services/jni/com_android_server_location_GpsLocationProvider.cpp
+@@ -38,6 +38,7 @@ static jmethodID method_reportStatus;
+ static jmethodID method_reportSvStatus;
+ static jmethodID method_reportAGpsStatus;
+ static jmethodID method_reportNmea;
++static jmethodID method_reportTestResult;
+ static jmethodID method_setEngineCapabilities;
+ static jmethodID method_xtraDownloadRequest;
+ static jmethodID method_reportNiNotification;
+@@ -113,6 +114,17 @@ static void nmea_callback(GpsUtcTime timestamp, const char* nmea, int length)
+     checkAndClearExceptionFromCallback(env, __FUNCTION__);
+ }
+ 
++static void test_callback(GpsTestResult* test_result)
++{
++    JNIEnv* env = AndroidRuntime::getJNIEnv();
++	env->CallVoidMethod(mCallbacksObj, method_reportTestResult, test_result->error_code,
++            test_result->theta, test_result->phi, test_result->success_num,
++            test_result->completed_num, test_result->avg_cno, test_result->dev_cno, 
++            test_result->avg_speed);
++    checkAndClearExceptionFromCallback(env, __FUNCTION__);
++    
++}
++
+ static void set_capabilities_callback(uint32_t capabilities)
+ {
+     ALOGD("set_capabilities_callback: %du\n", capabilities);
+@@ -149,6 +161,7 @@ GpsCallbacks sGpsCallbacks = {
+     status_callback,
+     sv_status_callback,
+     nmea_callback,
++    test_callback,
+     set_capabilities_callback,
+     acquire_wakelock_callback,
+     release_wakelock_callback,
+@@ -345,6 +358,7 @@ static void android_location_GpsLocationProvider_class_init_native(JNIEnv* env,
+     method_reportSvStatus = env->GetMethodID(clazz, "reportSvStatus", "()V");
+     method_reportAGpsStatus = env->GetMethodID(clazz, "reportAGpsStatus", "(III)V");
+     method_reportNmea = env->GetMethodID(clazz, "reportNmea", "(J)V");
++    method_reportTestResult = env->GetMethodID(clazz, "reportTestResult", "(IIIIIIII)V");
+     method_setEngineCapabilities = env->GetMethodID(clazz, "setEngineCapabilities", "(I)V");
+     method_xtraDownloadRequest = env->GetMethodID(clazz, "xtraDownloadRequest", "()V");
+     method_reportNiNotification = env->GetMethodID(clazz, "reportNiNotification",
+@@ -477,9 +491,25 @@ static jint android_location_GpsLocationProvider_read_sv_status(JNIEnv* env, job
+         elev[i] = sGpsSvStatus.sv_list[i].elevation;
+         azim[i] = sGpsSvStatus.sv_list[i].azimuth;
+     }
+-    mask[0] = sGpsSvStatus.ephemeris_mask;
+-    mask[1] = sGpsSvStatus.almanac_mask;
+-    mask[2] = sGpsSvStatus.used_in_fix_mask;
++	// This code discarded due to the multi-satellite support
++	//	mask[0] = sGpsSvStatus.ephemeris_mask;//int [] 0-Max bit-->svid //JNI support ArrayArray?
++	//	mask[1] = sGpsSvStatus.almanac_mask;
++	//	mask[2] = sGpsSvStatus.used_in_fix_mask;
++
++	//copy all the data to the maskArray
++	// the mask array has been divided [0-7]ephemeris[8-15]almanac[16-23]used_in_fix
++		for (int i = 0, k = 0; k < 3; i = (i+1) % 8) {
++			if (k == 0) {
++				mask[i + k * 8] = sGpsSvStatus.ephemeris_mask[i];
++			} else if (k == 1) {
++				mask[i + k * 8] = sGpsSvStatus.almanac_mask[i];
++			} else if (k == 2) {
++				mask[i + k * 8] = sGpsSvStatus.used_in_fix_mask[i];
++			}
++			if (i == 7) {
++				k++;
++			}
++		}
+ 
+     env->ReleaseIntArrayElements(prnArray, prns, 0);
+     env->ReleaseFloatArrayElements(snrArray, snrs, 0);

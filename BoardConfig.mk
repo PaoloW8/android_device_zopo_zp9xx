@@ -17,6 +17,18 @@ KERNEL := $(DEVICE_FOLDER)/prebuilt/kernel_990a
 
 -include vendor/zopo/zp9xx/BoardConfigVendor.mk
 
+# bluetooth
+MTK_BT_21_SUPPORT := yes
+MTK_BT_30_HS_SUPPORT := no
+MTK_BT_30_SUPPORT := yes
+MTK_BT_40_LE_STANDALONE := no
+MTK_BT_40_SUPPORT := yes
+MTK_BT_CHIP := MTK_MT6628
+
+# Some framework code requires this to enable BT
+BOARD_HAVE_BLUETOOTH := true
+BOARD_BLUETOOTH_BDROID_BUILDCFG_INCLUDE_DIR := device/zopo/zp9xx/bluetooth/bdroid
+
 # board
 TARGET_BOARD_PLATFORM := mt6589
 TARGET_ARCH := arm

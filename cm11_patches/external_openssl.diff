@@ -1,0 +1,80 @@
+diff --git a/crypto/x509/x509_d2.c b/crypto/x509/x509_d2.c
+index 51410cf..7dd8d05 100644
+--- a/crypto/x509/x509_d2.c
++++ b/crypto/x509/x509_d2.c
+@@ -104,4 +104,53 @@ int X509_STORE_load_locations(X509_STORE *ctx, const char *file,
+ 	return(1);
+ 	}
+ 
++//!!== Chiwei [2010/10/30]: Android AGPS porting ==
++/* add by Will for DER format certificate pool */ //add-->
++int X509_STORE_set_default_paths_ext(X509_STORE *ctx, int filetype)
++	{
++	X509_LOOKUP *lookup;
++
++    if (filetype != X509_FILETYPE_ASN1)
++        return X509_STORE_set_default_paths(ctx);
++       
++	lookup=X509_STORE_add_lookup(ctx,X509_LOOKUP_file());
++	if (lookup == NULL) return(0);
++	X509_LOOKUP_load_file(lookup,NULL,X509_FILETYPE_ASN1);
++
++	lookup=X509_STORE_add_lookup(ctx,X509_LOOKUP_hash_dir());
++	if (lookup == NULL) return(0);
++	X509_LOOKUP_add_dir(lookup,NULL,X509_FILETYPE_ASN1);
++	
++	/* clear any errors */
++	ERR_clear_error();
++	return(1);
++	}
++
++int X509_STORE_load_locations_ext(X509_STORE *ctx, const char *file,
++		const char *path, int filetype)
++	{
++	X509_LOOKUP *lookup;
++
++    if (filetype != X509_FILETYPE_ASN1)
++        return X509_STORE_load_locations(ctx, file, path);
++
++	if (file != NULL)
++		{
++		lookup=X509_STORE_add_lookup(ctx,X509_LOOKUP_file());
++		if (lookup == NULL) return(0);
++		if (X509_LOOKUP_load_file(lookup,file,X509_FILETYPE_ASN1) != 1)
++		    return(0);
++		}
++	if (path != NULL)
++		{
++		lookup=X509_STORE_add_lookup(ctx,X509_LOOKUP_hash_dir());
++		if (lookup == NULL) return(0);
++		if (X509_LOOKUP_add_dir(lookup,path,X509_FILETYPE_ASN1) != 1)
++		    return(0);
++		}
++	if ((path == NULL) && (file == NULL))
++		return(0);
++	return(1);
++	}
++/* add by Will for DER format certificate pool */ //add<--
+ #endif
+diff --git a/include/openssl/ssl.h b/include/openssl/ssl.h
+index 35eb044..014a429 100644
+--- a/include/openssl/ssl.h
++++ b/include/openssl/ssl.h
+@@ -1013,6 +1013,8 @@ struct ssl_ctx_st
+ 	/* The client's Channel ID private key. */
+ 	EVP_PKEY *tlsext_channel_id_private;
+ #endif
++	/// M: MTK: AGPS TLS Usage
++	void *sec_ssl_ctx;
+ 	};
+ 
+ #endif
+@@ -1421,6 +1423,8 @@ struct ssl_st
+ #ifndef OPENSSL_NO_SRP
+ 	SRP_CTX srp_ctx; /* ctx for SRP authentication */
+ #endif
++	/// M: MTK: AGPS TLS Usage
++	void *sec_ssl_conn;
+ 	};
+ 
+ #endif

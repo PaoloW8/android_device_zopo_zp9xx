@@ -1,0 +1,28 @@
+diff --git a/frameworks/src/com/codeaurora/telephony/msim/CardSubscriptionManager.java b/frameworks/src/com/codeaurora/telephony/msim/CardSubscriptionManager.java
+index 9357c83..8ec8a7d 100644
+--- a/frameworks/src/com/codeaurora/telephony/msim/CardSubscriptionManager.java
++++ b/frameworks/src/com/codeaurora/telephony/msim/CardSubscriptionManager.java
+@@ -412,19 +412,10 @@ public class CardSubscriptionManager extends Handler {
+                 && uiccCard.getCardState() == CardState.CARDSTATE_PRESENT
+                 && cardInfo.getIccId() == null
+                 && !cardInfo.isReadIccIdInProgress()) {
+-            String strCardIndex = Integer.toString(cardIndex);
+-            Message response = obtainMessage(EVENT_GET_ICCID_DONE, strCardIndex);
+-            UiccCardApplication cardApp = uiccCard.getApplicationIndex(0);
+-            if (cardApp != null) {
+-                IccFileHandler fileHandler = cardApp.getIccFileHandler();
+-                if (fileHandler != null) {
+-                    logd("updateIccIds: get ICCID for cardInfo : "
+-                            + cardIndex);
+-                    fileHandler.loadEFTransparent(IccConstants.EF_ICCID, response);
+-                    cardInfo.setReadIccIdInProgress(true); // ICCID read started!!!
+-                    readStarted = true;
+-                }
+-            }
++
++		String strCardIndex = SystemProperties.get("ril.iccid.sim" + (cardIndex + 1));
++		((CardInfo)this.mUiccCardList.get(cardIndex)).setIccId(strCardIndex);
++		updateUiccStatus(Integer.valueOf(cardIndex), "ICCID Read Done for card : " + cardIndex);
+         }
+ 
+         return readStarted;

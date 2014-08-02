@@ -1,0 +1,198 @@
+diff --git a/include/netutils/ifc.h b/include/netutils/ifc.h
+index 11a8e1e..1f907a8 100644
+--- a/include/netutils/ifc.h
++++ b/include/netutils/ifc.h
+@@ -73,6 +73,7 @@ extern in_addr_t prefixLengthToIpv4Netmask(int prefix_length);
+ extern int ipv4NetmaskToPrefixLength(in_addr_t mask);
+ 
+ extern in_addr_t prefixLengthToIpv4Netmask(int prefix_length);
++extern int ifc_set_throttle(const char *ifname, int rxKbps, int txKbps);
+ 
+ __END_DECLS
+ 
+diff --git a/init/builtins.c b/init/builtins.c
+index 4070578..2d25a1a 100644
+--- a/init/builtins.c
++++ b/init/builtins.c
+@@ -391,6 +391,38 @@ int do_mkdir(int nargs, char **args)
+     return 0;
+ }
+ 
++int do_mknod(int nargs, char **args)
++{
++    dev_t dev;
++    int major;
++    int minor;
++    int mode;
++
++    /* mknod <path> <type> <major> <minor> */
++
++    if (nargs != 5) {
++        return -1;
++    }
++
++    major = strtoul(args[3], 0, 0);
++    minor = strtoul(args[4], 0, 0);
++    dev = (major << 8) | minor;
++
++    if (strcmp(args[2], "c") == 0) {
++        mode = S_IFCHR;
++    } else {
++        mode = S_IFBLK;
++    }
++
++    if (mknod(args[1], mode, dev)) {
++        ERROR("init: mknod failed");
++        return -1;
++    }
++
++    return 0;
++}
++
++
+ static struct {
+     const char *name;
+     unsigned flag;
+diff --git a/init/init_parser.c b/init/init_parser.c
+index 1aebf98..88e8c1a 100644
+--- a/init/init_parser.c
++++ b/init/init_parser.c
+@@ -127,6 +127,7 @@ int lookup_keyword(const char *s)
+         if (!strcmp(s, "kdir")) return K_mkdir;
+         if (!strcmp(s, "ount_all")) return K_mount_all;
+         if (!strcmp(s, "ount")) return K_mount;
++        if (!strcmp(s, "knod")) return K_mknod;
+         break;
+     case 'o':
+         if (!strcmp(s, "n")) return K_on;
+diff --git a/init/keywords.h b/init/keywords.h
+index a62e9f1..302799e 100644
+--- a/init/keywords.h
++++ b/init/keywords.h
+@@ -40,6 +40,7 @@ int do_chmod(int nargs, char **args);
+ int do_loglevel(int nargs, char **args);
+ int do_load_persist_props(int nargs, char **args);
+ int do_wait(int nargs, char **args);
++int do_mknod(int nargs, char **args);
+ #define __MAKE_KEYWORD_ENUM__
+ #define KEYWORD(symbol, flags, nargs, func) K_##symbol,
+ enum {
+@@ -100,6 +101,7 @@ enum {
+     KEYWORD(chown,       COMMAND, 2, do_chown)
+     KEYWORD(chmod,       COMMAND, 2, do_chmod)
+     KEYWORD(loglevel,    COMMAND, 1, do_loglevel)
++    KEYWORD(mknod,       COMMAND, 4, do_mknod)
+     KEYWORD(load_persist_props,    COMMAND, 0, do_load_persist_props)
+     KEYWORD(ioprio,      OPTION,  0, 0)
+ #ifdef __MAKE_KEYWORD_ENUM__
+diff --git a/init/property_service.c b/init/property_service.c
+index 0b4845e..920f37f 100644
+--- a/init/property_service.c
++++ b/init/property_service.c
+@@ -66,17 +66,25 @@ struct {
+     unsigned int gid;
+ } property_perms[] = {
+     { "net.rmnet",        AID_RADIO,    0 },
++    { "net.rmnet0.",      AID_RADIO,    0 },
+     { "net.gprs.",        AID_RADIO,    0 },
+     { "net.ppp",          AID_RADIO,    0 },
+     { "net.qmi",          AID_RADIO,    0 },
+     { "net.lte",          AID_RADIO,    0 },
+     { "net.cdma",         AID_RADIO,    0 },
+     { "ril.",             AID_RADIO,    0 },
++    { "persist.ril.",     AID_RADIO,    0 },
++    { "persist.ril.cfu.querytype", AID_APP,   0 },
++    { "mux.",             AID_RADIO,    0 },
++    { "mux.",             AID_SYSTEM,   0 },
++    { "mtk_telephony_mode_slot1",             AID_SYSTEM,   0 },
++    { "mtk_telephony_mode_slot2",             AID_SYSTEM,   0 },
+     { "gsm.",             AID_RADIO,    0 },
+     { "persist.radio",    AID_RADIO,    0 },
+     { "net.dns",          AID_RADIO,    0 },
+     { "sys.usb.config",   AID_RADIO,    0 },
+     { "net.",             AID_SYSTEM,   0 },
++    { "net.",             AID_DHCP,   0 },
+     { "dev.",             AID_SYSTEM,   0 },
+     { "runtime.",         AID_SYSTEM,   0 },
+     { "hw.",              AID_SYSTEM,   0 },
+@@ -84,8 +92,9 @@ struct {
+     { "sys.powerctl",     AID_SHELL,    0 },
+     { "service.",         AID_SYSTEM,   0 },
+     { "wlan.",            AID_SYSTEM,   0 },
+-    { "bluetooth.",       AID_BLUETOOTH,    0 },
++    { "bluetooth.",       AID_BLUETOOTH,   0 },
+     { "dhcp.",            AID_SYSTEM,   0 },
++    { "bwc.mm.",          AID_SYSTEM,   0 },
+     { "dhcp.",            AID_DHCP,     0 },
+     { "debug.",           AID_SYSTEM,   0 },
+     { "debug.",           AID_SHELL,    0 },
+@@ -99,6 +108,27 @@ struct {
+     { "persist.security.", AID_SYSTEM,   0 },
+     { "persist.service.bdroid.", AID_BLUETOOTH,   0 },
+     { "selinux."         , AID_SYSTEM,   0 },
++    { "gps.",             AID_GPS,     AID_SYSTEM },
++    { "persist.af.",      AID_MEDIA,   0 },
++    { "af.",              AID_MEDIA,   0 },
++    { "a2dp.",            AID_MEDIA,   0 },
++    { "streamin.",        AID_MEDIA,   0 },
++    { "streamout.",       AID_MEDIA,   0 },
++    { "bwc.mm.",          AID_MEDIA,   0 },
++    { "mediatek.",        AID_RADIO,   0 },
++    { "bt.",        AID_BLUETOOTH,    0 },
++    { "persist.bt.",      AID_BLUETOOTH,    0 },
++    { "persist.mtk.wcn.combo.",        AID_SYSTEM,    0 },
++    { "nvram_init",      9997,   0 },
++    { "persist.mtklog.",  AID_SHELL,   0 },
++    { "ter.",             AID_RADIO,    0 },
++    { "persist.ter.",     AID_RADIO,    0 },
++    { "media.wfd",  AID_SYSTEM,   AID_MEDIA },
++    { "wfd.",  AID_SYSTEM,   AID_MEDIA },
++    { "persist.bootanim.",  AID_GRAPHICS,   0 },
++    { "gps.",             AID_GPS,     AID_SYSTEM },
++    { "bgw.", 				AID_SYSTEM,    0 },
++    { "cdma.",        AID_RADIO,    0 },    //Add by gfzhu VIA
+     { "wc_transport.",     AID_BLUETOOTH,   AID_SYSTEM },
+     { "net.pdp",          AID_RADIO,    AID_RADIO },
+     { "service.bootanim.exit", AID_GRAPHICS, 0 },
+@@ -120,8 +150,12 @@ struct {
+     unsigned int uid;
+     unsigned int gid;
+ } control_perms[] = {
+-    { "dumpstate",AID_SHELL, AID_LOG },
+-    { "ril-daemon",AID_RADIO, AID_RADIO },
++    { "dumpstate", AID_SHELL, AID_LOG },
++    { "ril-daemon", AID_RADIO, AID_RADIO },
++    { "muxreport-daemon", AID_RADIO, AID_RADIO },
++    { "md_minilog_util", AID_RADIO, AID_RADIO},
++    { "pppd_csd", AID_RADIO, AID_RADIO},
++    { "sysctl", AID_SHELL, AID_SHELL},
+ #ifdef CONTROL_PERMS_APPEND
+ CONTROL_PERMS_APPEND
+ #endif
+diff --git a/libnetutils/ifc_utils.c b/libnetutils/ifc_utils.c
+index 49e9197..a9ceb51 100644
+--- a/libnetutils/ifc_utils.c
++++ b/libnetutils/ifc_utils.c
+@@ -1005,3 +1005,9 @@ int ifc_set_mtu(const char *name, int mtuSz)
+ 
+     return ret;
+ }
++
++/*do not call this function in netd*/
++int ifc_set_throttle(const char *ifname, int rxKbps, int txKbps)
++{
++    return 0;
++}
+diff --git a/rootdir/init.rc b/rootdir/init.rc
+index 7134090..8637f06 100644
+--- a/rootdir/init.rc
++++ b/rootdir/init.rc
+@@ -107,7 +107,7 @@ loglevel 3
+     write /proc/sys/kernel/sched_child_runs_first 0
+     write /proc/sys/kernel/randomize_va_space 2
+     write /proc/sys/kernel/kptr_restrict 2
+-    write /proc/sys/kernel/dmesg_restrict 1
++    write /proc/sys/kernel/dmesg_restrict 0
+     write /proc/sys/vm/mmap_min_addr 32768
+     write /proc/sys/net/ipv4/ping_group_range "0 2147483647"
+     write /proc/sys/kernel/sched_rt_runtime_us 950000
